@@ -88,7 +88,7 @@ class Adagrad(Optimizer):
                 for i in range(1, len(p.shape)):
                     sum_sq = torch.min(sum_sq.unsqueeze(i), state['sum'][i].view(tuple([1 for _ in range(i)] + [-1])))
 
-                state['real_sum'].addcmul_(1, grad, grad)
+                state['real_sum'].addcmul_(grad, grad, value=1)
                 # import pdb; pdb.set_trace()
 
                 # if grad.is_sparse:

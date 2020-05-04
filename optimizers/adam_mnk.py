@@ -64,7 +64,6 @@ class Adam(Optimizer):
                 loss = closure()
 
         for group in self.param_groups:
-            # TODO also track base adam stats to see how much it diverges
             for p in group['params']:
                 if p.grad is None:
                     continue
@@ -89,7 +88,6 @@ class Adam(Optimizer):
                     #     # Maintains max of all exp. moving avg. of sq. grad. values
                     #     state['max_exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format)
 
-                # TODO do stuff in place as needed later to save memory?
                 # exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
                 # if amsgrad:
                 #     max_exp_avg_sq = state['max_exp_avg_sq']
@@ -102,22 +100,66 @@ class Adam(Optimizer):
                 # if group['weight_decay'] != 0:
                 #     grad = grad.add(p, alpha=group['weight_decay'])
 
-                # TODO properly update... instead of doing in place. then estimate. 
-                for i in range(len(p.shape)): # TODO optimize later if needed
-                    grad_view = grad
+                exp_avg_ub = state['exp_avg'][0][0]
+                exp_avg_lb = state['exp_avg'][0][1]
+                exp_avg_sq = state['exp_avg_sq'][0]
+                for i in range(1, len(p.shape)):
+                    exp_avg_ub = torch.min(exp_avg_ub.unsqueeze(i), state['exp_avg'][i][0].view(tuple([1 for _ in range(i)] + [-1])))
+                    exp_avg_lb = torch.max(exp_avg_lb.unsqueeze(i), state['exp_avg'][i][1].view(tuple([1 for _ in range(i)] + [-1])))
+                    exp_avg_sq = torch.min(exp_avg_sq.unsqueeze(i), state['exp_avg_sq'][i].view(tuple([1 for _ in range(i)] + [-1])))
+                exp_avg_ub.mul_(beta1).add_(grad, alpha=1-beta1)
+                exp_avg_lb.mul_(beta1).add_(grad, alpha=1-beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1-beta2)
+
+                for i in range(len(p.shape)):
+                    exp_avg_ub_view = exp_avg_ub
                     if i != 0:
-                        grad_view = grad.transpose(0, i)
+                        exp_avg_ub_view = exp_avg_ub_view.transpose(0, i)
                     if len(p.shape) > 1:
-                        grad_view = grad_view.flatten(1)
-                        grad_view_max = grad_view.max(dim=1)[0]
-                        grad_view_min = grad_view.min(dim=1)[0]
+                        exp_avg_ub_view = exp_avg_ub_view.flatten(1)
+                        exp_avg_ub_view_max = exp_avg_ub_view.max(dim=1)[0]
                     else:
-                        grad_view_max = grad_view
-                        grad_view_min = grad_view
-                    grad_view_sq = torch.max(grad_view_max * grad_view_max, grad_view_min * grad_view_min)
-                    state['exp_avg'][i][0].mul_(beta1).add_(grad_view_max, alpha=1-beta1)
-                    state['exp_avg'][i][1].mul_(beta1).add_(grad_view_min, alpha=1-beta1)
-                    state['exp_avg_sq'][i].mul_(beta2).add_(grad_view_sq, alpha=1-beta2)
+                        exp_avg_ub_view_max = exp_avg_ub_view
+                    new_ub = exp_avg_ub_view_max.clone()
+                for i in range(len(p.shape)):
+                    exp_avg_lb_view = exp_avg_lb
+                    if i != 0:
+                        exp_avg_lb_view = exp_avg_lb_view.transpose(0, i)
+                    if len(p.shape) > 1:
+                        exp_avg_lb_view = exp_avg_lb_view.flatten(1)
+                        exp_avg_lb_view_max = exp_avg_lb_view.min(dim=1)[0]
+                    else:
+                        exp_avg_lb_view_max = exp_avg_lb_view
+                    new_lb = exp_avg_lb_view_max.clone()
+                state['exp_avg'][i] = (new_ub, new_lb)
+
+                for i in range(len(p.shape)):
+                    exp_avg_sq_view = exp_avg_sq
+                    if i != 0:
+                        exp_avg_sq_view = exp_avg_sq_view.transpose(0, i)
+                    if len(p.shape) > 1:
+                        exp_avg_sq_view = exp_avg_sq_view.flatten(1)
+                        exp_avg_sq_view_max = exp_avg_sq_view.max(dim=1)[0]
+                    else:
+                        exp_avg_sq_view_max = exp_avg_sq_view
+                state['exp_avg_sq'][i] = exp_avg_sq_view_max.clone()
+
+                # for i in range(len(p.shape)): # TODO optimize later if needed
+                #     grad_view = grad
+                #     if i != 0:
+                #         grad_view = grad.transpose(0, i)
+                #     if len(p.shape) > 1:
+                #         grad_view = grad_view.flatten(1)
+                #         grad_view_max = grad_view.max(dim=1)[0]
+                #         grad_view_min = grad_view.min(dim=1)[0]
+                #     else:
+                #         grad_view_max = grad_view
+                #         grad_view_min = grad_view
+                #     grad_view_sq = torch.max(grad_view_max * grad_view_max, grad_view_min * grad_view_min)
+                #     state['exp_avg'][i][0].mul_(beta1).add_(grad_view_max, alpha=1-beta1)
+                #     state['exp_avg'][i][1].mul_(beta1).add_(grad_view_min, alpha=1-beta1)
+                #     state['exp_avg_sq'][i].mul_(beta2).add_(grad_view_sq, alpha=1-beta2)
+
                 # Decay the first and second moment running average coefficient
                 real_exp_avg, real_exp_avg_sq = state['real_exp_avg'], state['real_exp_avg_sq']
                 real_exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
@@ -128,16 +170,10 @@ class Adam(Optimizer):
                 #     # Use the max. for normalizing running avg. of gradient
                 #     denom = (max_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
                 # else:
-                exp_avg_ub = state['exp_avg'][0][0]
-                exp_avg_lb = state['exp_avg'][0][1]
-                exp_avg_sq = state['exp_avg_sq'][0]
-                for i in range(1, len(p.shape)):
-                    exp_avg_ub = torch.min(exp_avg_ub.unsqueeze(i), state['exp_avg'][i][0].view(tuple([1 for _ in range(i)] + [-1])))
-                    exp_avg_lb = torch.max(exp_avg_lb.unsqueeze(i), state['exp_avg'][i][1].view(tuple([1 for _ in range(i)] + [-1])))
-                    exp_avg_sq = torch.min(exp_avg_sq.unsqueeze(i), state['exp_avg_sq'][i].view(tuple([1 for _ in range(i)] + [-1])))
-                # exp_avg = exp_avg_ub + exp_avg_lb
-                exp_avg = real_exp_avg
-                exp_avg_sq = real_exp_avg_sq
+
+                exp_avg = exp_avg_ub + exp_avg_lb
+                # exp_avg = real_exp_avg
+                # exp_avg_sq = real_exp_avg_sq
 
                 denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
 

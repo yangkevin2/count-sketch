@@ -115,9 +115,9 @@ criterion = nn.CrossEntropyLoss()
 #optimizer = Adagrad(model.parameters(), args.lr)
 # optimizer = Adam(model.parameters(), betas=(0.9, 0.999))
 #optimizer = RMSprop(model.parameters())
-# optimizer = Adam_MNK(model.parameters(), betas=(0.9, 0.999))
+optimizer = Adam_MNK(model.parameters(), betas=(0.9, 0.999))
 # optimizer = Adagrad_SM3(model.parameters(), args.lr)
-optimizer = Adagrad_SM3_II(model.parameters(), args.lr)
+# optimizer = Adagrad_SM3_II(model.parameters(), args.lr)
 # optimizer = torch.optim.Adagrad(model.parameters(), args.lr)
 
 

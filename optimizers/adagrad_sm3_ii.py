@@ -73,12 +73,12 @@ class Adagrad(Optimizer):
                 sum_sq = state['sum'][0]
                 for i in range(1, len(p.shape)):
                     sum_sq = torch.min(sum_sq.unsqueeze(i), state['sum'][i].view(tuple([1 for _ in range(i)] + [-1])))
-                sum_sq.addcmul_(1, grad, grad)
+                sum_sq.addcmul_(grad, grad, value=1)
 
                 for i in range(len(p.shape)): # TODO optimize later if needed
                     sum_sq_view = sum_sq
                     if i != 0:
-                        sum_sq_view = grad.transpose(0, i)
+                        sum_sq_view = sum_sq_view.transpose(0, i)
                     if len(p.shape) > 1:
                         sum_sq_view = sum_sq_view.flatten(1)
                         sum_sq_view_max = sum_sq_view.max(dim=1)[0]
@@ -86,7 +86,7 @@ class Adagrad(Optimizer):
                         sum_sq_view_max = sum_sq_view
                     state['sum'][i] = sum_sq_view_max.clone()
 
-                state['real_sum'].addcmul_(1, grad, grad)
+                state['real_sum'].addcmul_(grad, grad, value=1)
 
                 # if grad.is_sparse:
                 #     grad = grad.coalesce()  # the update is non-linear so indices must be unique
