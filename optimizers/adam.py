@@ -159,6 +159,7 @@ class Adam(Optimizer):
         if closure is not None:
             loss = closure()
 
+        print('step')
         for group in self.param_groups:
             for p in group['params']:
                 if p.grad is None:
@@ -166,7 +167,9 @@ class Adam(Optimizer):
                 grad = p.grad.data
 
                 if grad.is_sparse:
+                    print('sparse')
                     self.sparse(p, grad, group)
                 else:
+                    print('dense')
                     self.dense(p, grad, group)
         return loss

@@ -12,9 +12,14 @@ import torch.onnx
 import data
 import model
 
+import sys
+sys.path.append('../../optimizers')
 from sgd import SGD # Count-Sketch Momentum optimizer
 from adagrad import Adagrad # Count-Sketch Adagrad optimizer
 from adam import Adam # Count-Sketch Adam optimizer
+from adam_mnk import Adam as Adam_MNK
+from adagrad_sm3 import Adagrad as Adagrad_SM3
+from adagrad_sm3_ii import Adagrad as Adagrad_SM3_II
 from rmsprop import RMSprop # Count-Sketch RMSProp optimizer
 #from adam_base import Adam # Baseline Adam optimizer supports sparse gradients
 #from adafactor import Adam # Low-Rank Approximation Adam optimzer
@@ -44,6 +49,8 @@ parser.add_argument('--dropout', type=float, default=0.5,
                     help='dropout applied to layers (0 = no dropout)')
 parser.add_argument('--tied', action='store_true',
                     help='tie the word embedding and softmax weights')
+parser.add_argument('--dense', action='store_true',
+                    help='no sparse gradient for embedding')
 parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
 parser.add_argument('--cuda', action='store_true',
@@ -101,13 +108,19 @@ test_data = batchify(corpus.test, eval_batch_size)
 ###############################################################################
 
 ntokens = len(corpus.dictionary)
-model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied).to(device)
+model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied, not args.dense).to(device)
 
 criterion = nn.CrossEntropyLoss()
-optimizer = SGD(model.parameters(), args.lr, momentum=0.9, nesterov=True)
+# optimizer = SGD(model.parameters(), args.lr, momentum=0.9, nesterov=True)
 #optimizer = Adagrad(model.parameters(), args.lr)
-#optimizer = Adam(model.parameters(), betas=(0.9, 0.999))
+# optimizer = Adam(model.parameters(), betas=(0.9, 0.999))
 #optimizer = RMSprop(model.parameters())
+# optimizer = Adam_MNK(model.parameters(), betas=(0.9, 0.999))
+# optimizer = Adagrad_SM3(model.parameters(), args.lr)
+optimizer = Adagrad_SM3_II(model.parameters(), args.lr)
+# optimizer = torch.optim.Adagrad(model.parameters(), args.lr)
+
+
 
 ###############################################################################
 # Training code
