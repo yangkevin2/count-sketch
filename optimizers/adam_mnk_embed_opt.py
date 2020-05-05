@@ -2,6 +2,8 @@ import math
 import torch
 from torch.optim import Optimizer
 
+import numpy as np
+
 from exp_cms import CountMinSketch
 from exp_sketch import CountSketch 
 
@@ -98,55 +100,89 @@ class Adam(Optimizer):
 
     def sparse(self, p, grad, group):
         state = self.state[p]
-        beta1, beta2 = group['betas']
+        # grad = grad.to_dense()
+        # NOTE hack just for word embeddings, basically, to sparsify gradients
+        # nonzero_idx = (grad.abs().sum(dim=1) != 0).nonzero().flatten()
+        # nonzero_idx = (grad.max(dim=1)[0] != grad.min(dim=1)[0]).nonzero().flatten()
+        # grad = grad[nonzero_idx]
+        grad = grad.coalesce()
+        nonzero_idx = grad._indices()[0]
+        grad = grad._values()
 
         # State initialization
         if len(state) == 0:
-            N, D = grad.data.size()
             state['step'] = 0
-            if beta1 > 0:
-                # Exponential moving average of gradient values
-                state['exp_avg'] = CountSketch(N, D)
-            # Exponential moving average of squared gradient values
-            state['exp_avg_sq'] = CountMinSketch(N, D)
+            # init exp_avg and exp_avg_sq as sketches
+            state['exp_avg'] = [[torch.zeros(p.shape[i]).to(p.device), torch.zeros(p.shape[i]).to(p.device)] for i in range(len(p.shape))]
+            state['exp_avg_sq'] = [torch.zeros(p.shape[i]).to(p.device) for i in range(len(p.shape))]
+
+        beta1, beta2 = group['betas']
 
         state['step'] += 1
-        if group['weight_decay'] != 0:
-           grad = grad.add(group['weight_decay'], p.data)
-
-        grad = grad.coalesce()  # the update is non-linear so indices must be unique
-        grad_indices = grad._indices()
-        grad_values = grad._values()
-        size = grad.size()
-
-        def make_sparse(values):
-            constructor = grad.new
-            if grad_indices.dim() == 0 or values.dim() == 0:
-                return constructor().resize_as_(grad)
-            return constructor(grad_indices, values, size)
-
-        if beta1 > 0:
-            exp_avg = state['exp_avg']
-            numer = exp_avg.update(grad_indices, grad_values, size, beta1)._values()
-        else:
-            numer = grad._values()
-
-        exp_avg_sq = state['exp_avg_sq']
-        if state['step'] % 1000 == 0:
-           #print("Cleaning")
-           exp_avg_sq.clean(0.25)
-
-        # Decay the first and second moment running average coefficient
-        #      old <- b * old + (1 - b) * new  <==> old += (1 - b) * (new - old)
-        exp_avg_sq_update = exp_avg_sq.update(grad_indices, grad_values.pow(2), size, beta2)._values()
-        denom = exp_avg_sq_update.sqrt_().add_(group['eps'])
-        update = numer / denom
-
         bias_correction1 = 1 - beta1 ** state['step']
         bias_correction2 = 1 - beta2 ** state['step']
-        step_size = group['lr'] * math.sqrt(bias_correction2) / bias_correction1
 
-        p.data.add_(make_sparse(-step_size * update))
+        step_size = group['lr'] / bias_correction1
+
+        exp_avg_sq = state['exp_avg_sq'][0].mul_(beta2)[nonzero_idx]
+        for i in range(1, len(p.shape)):
+            state['exp_avg_sq'][i].mul_(beta2)
+            exp_avg_sq = torch.min(exp_avg_sq.unsqueeze(i), state['exp_avg_sq'][i].view([1 for _ in range(i)] + [-1]))
+        exp_avg_sq.addcmul_(grad, grad, value=1-beta2)
+        for i in range(len(p.shape)):
+            exp_avg_sq_view = exp_avg_sq
+            if i != 0:
+                exp_avg_sq_view = exp_avg_sq_view.transpose(0, i)
+            if len(p.shape) > 1:
+                exp_avg_sq_view = exp_avg_sq_view.flatten(1)
+                exp_avg_sq_view_max = exp_avg_sq_view.max(dim=1)[0]
+            else:
+                exp_avg_sq_view_max = exp_avg_sq_view
+            if i == 0:
+                state['exp_avg_sq'][i][nonzero_idx] = exp_avg_sq_view_max.clone()
+            else:
+                state['exp_avg_sq'][i] = torch.max(state['exp_avg_sq'][i], exp_avg_sq_view_max.clone())
+        denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
+
+        exp_avg_ub = state['exp_avg'][0][0].mul_(beta1)[nonzero_idx]
+        for i in range(1, len(p.shape)):
+            state['exp_avg'][i][0].mul_(beta1)
+            exp_avg_ub = torch.min(exp_avg_ub.unsqueeze(i), state['exp_avg'][i][0].view([1 for _ in range(i)] + [-1]))
+        exp_avg_ub.add_(grad, alpha=1-beta1)
+        for i in range(len(p.shape)):
+            exp_avg_ub_view = exp_avg_ub
+            if i != 0:
+                exp_avg_ub_view = exp_avg_ub_view.transpose(0, i)
+            if len(p.shape) > 1:
+                exp_avg_ub_view = exp_avg_ub_view.flatten(1)
+                exp_avg_ub_view_max = exp_avg_ub_view.max(dim=1)[0]
+            else:
+                exp_avg_ub_view_max = exp_avg_ub_view
+            if i == 0:
+                state['exp_avg'][i][0][nonzero_idx] = exp_avg_ub_view_max.clone()
+            else:
+                state['exp_avg'][i][0] = torch.max(state['exp_avg'][i][0], exp_avg_ub_view_max.clone())
+        p.data[nonzero_idx] = p.data[nonzero_idx] - step_size * exp_avg_ub / denom / 2
+
+        exp_avg_lb = state['exp_avg'][0][1].mul_(beta1)[nonzero_idx]
+        for i in range(1, len(p.shape)):
+            state['exp_avg'][i][1].mul_(beta1)
+            exp_avg_lb = torch.max(exp_avg_lb.unsqueeze(i), state['exp_avg'][i][1].view([1 for _ in range(i)] + [-1]))
+        exp_avg_lb.add_(grad, alpha=1-beta1)
+        for i in range(len(p.shape)):
+            exp_avg_lb_view = exp_avg_lb
+            if i != 0:
+                exp_avg_lb_view = exp_avg_lb_view.transpose(0, i)
+            if len(p.shape) > 1:
+                exp_avg_lb_view = exp_avg_lb_view.flatten(1)
+                exp_avg_lb_view_max = exp_avg_lb_view.min(dim=1)[0]
+            else:
+                exp_avg_lb_view_max = exp_avg_lb_view
+            if i == 0:
+                state['exp_avg'][i][1][nonzero_idx] = exp_avg_lb_view_max.clone()
+            else:
+                state['exp_avg'][i][1] = torch.min(state['exp_avg'][i][1], exp_avg_lb_view_max.clone())
+        p.data[nonzero_idx] = p.data[nonzero_idx] - step_size * exp_avg_lb / denom / 2
 
     def step(self, closure=None):
         """Performs a single optimization step.

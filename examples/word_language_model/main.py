@@ -16,10 +16,13 @@ import sys
 sys.path.append('../../optimizers')
 from sgd import SGD # Count-Sketch Momentum optimizer
 from adagrad import Adagrad # Count-Sketch Adagrad optimizer
+from adam_base import Adam as Adam_Base
 from adam import Adam # Count-Sketch Adam optimizer
-from adam_mnk import Adam as Adam_MNK
+from adam_mnk_opt import Adam as Adam_MNK
+from adam_mnk_embed_opt import Adam as Adam_MNK_Embed
 from adagrad_sm3 import Adagrad as Adagrad_SM3
 from adagrad_sm3_ii import Adagrad as Adagrad_SM3_II
+from adagrad_sm3_ii_embed import Adagrad as Adagrad_SM3_II_Embed
 from rmsprop import RMSprop # Count-Sketch RMSProp optimizer
 #from adam_base import Adam # Baseline Adam optimizer supports sparse gradients
 #from adafactor import Adam # Low-Rank Approximation Adam optimzer
@@ -29,6 +32,9 @@ parser.add_argument('--data', type=str, default='./data/wikitext-2',
                     help='location of the data corpus')
 parser.add_argument('--model', type=str, default='LSTM',
                     help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU)')
+parser.add_argument('--opt', type=str, default='Adam_MNK', 
+                    choices=['Adam', 'Adagrad', 'SGD_CS', 'Adam_CS', 'Adagrad_CS', 'RMSprop_CS', 'Adam_MNK', 'Adam_MNK_Embed', 'Adagrad_SM3', 'Adagrad_SM3_II', 'Adagrad_SM3_II_Embed'],
+                    help='type of optimizer')
 parser.add_argument('--emsize', type=int, default=672,
                     help='size of word embeddings')
 parser.add_argument('--nhid', type=int, default=672,
@@ -111,14 +117,30 @@ ntokens = len(corpus.dictionary)
 model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied, not args.dense).to(device)
 
 criterion = nn.CrossEntropyLoss()
-# optimizer = SGD(model.parameters(), args.lr, momentum=0.9, nesterov=True)
-#optimizer = Adagrad(model.parameters(), args.lr)
-# optimizer = Adam(model.parameters(), betas=(0.9, 0.999))
-#optimizer = RMSprop(model.parameters())
-optimizer = Adam_MNK(model.parameters(), betas=(0.9, 0.999))
-# optimizer = Adagrad_SM3(model.parameters(), args.lr)
-# optimizer = Adagrad_SM3_II(model.parameters(), args.lr)
-# optimizer = torch.optim.Adagrad(model.parameters(), args.lr)
+optimizer = None
+if args.opt == 'Adam':
+    optimizer = Adam_Base(model.parameters(), betas=(0.9, 0.999))
+elif args.opt == 'Adagrad':
+    optimizer = torch.optim.Adagrad(model.parameters(), args.lr)
+elif args.opt == 'SGD_CS':
+    optimizer = SGD(model.parameters(), args.lr, momentum=0.9, nesterov=True)
+elif args.opt == 'Adagrad_CS':
+    optimizer = Adagrad(model.parameters(), args.lr)
+elif args.opt == 'Adam_CS':
+    optimizer = Adam(model.parameters(), betas=(0.9, 0.999))
+elif args.opt == 'RMSprop_CS':
+    optimizer = RMSprop(model.parameters())
+elif args.opt == 'Adam_MNK':
+    optimizer = Adam_MNK(model.parameters(), betas=(0.9, 0.999))
+elif args.opt == 'Adam_MNK_Embed':
+    optimizer = Adam_MNK_Embed(model.parameters(), betas=(0.9, 0.999))
+elif args.opt == 'Adagrad_SM3':
+    optimizer = Adagrad_SM3(model.parameters(), args.lr)
+elif args.opt == 'Adagrad_SM3_II_Embed':
+    optimizer = Adagrad_SM3_II_Embed(model.parameters(), args.lr)
+else:
+    assert args.opt == 'Adagrad_SM3_II'
+    optimizer = Adagrad_SM3_II(model.parameters(), args.lr)
 
 
 
@@ -200,6 +222,7 @@ def train():
             sys.stdout.flush()
             total_loss = 0
             start_time = time.time()
+            print('max GB mem used', torch.cuda.max_memory_allocated(device=device) / 2**30) # max mem used until now, in GB
 
 
 def export_onnx(path, batch_size, seq_len):

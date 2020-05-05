@@ -2,6 +2,8 @@ import math
 import torch
 from torch.optim import Optimizer
 
+import numpy as np
+
 
 class Adam(Optimizer):
     r"""Implements Adam algorithm.
@@ -113,25 +115,21 @@ class Adam(Optimizer):
 
                 for i in range(len(p.shape)):
                     exp_avg_ub_view = exp_avg_ub
+                    exp_avg_lb_view = exp_avg_lb
                     if i != 0:
                         exp_avg_ub_view = exp_avg_ub_view.transpose(0, i)
+                        exp_avg_lb_view = exp_avg_lb_view.transpose(0, i)
                     if len(p.shape) > 1:
                         exp_avg_ub_view = exp_avg_ub_view.flatten(1)
                         exp_avg_ub_view_max = exp_avg_ub_view.max(dim=1)[0]
-                    else:
-                        exp_avg_ub_view_max = exp_avg_ub_view
-                    new_ub = exp_avg_ub_view_max.clone()
-                for i in range(len(p.shape)):
-                    exp_avg_lb_view = exp_avg_lb
-                    if i != 0:
-                        exp_avg_lb_view = exp_avg_lb_view.transpose(0, i)
-                    if len(p.shape) > 1:
                         exp_avg_lb_view = exp_avg_lb_view.flatten(1)
                         exp_avg_lb_view_max = exp_avg_lb_view.min(dim=1)[0]
                     else:
+                        exp_avg_ub_view_max = exp_avg_ub_view
                         exp_avg_lb_view_max = exp_avg_lb_view
+                    new_ub = exp_avg_ub_view_max.clone()
                     new_lb = exp_avg_lb_view_max.clone()
-                state['exp_avg'][i] = (new_ub, new_lb)
+                    state['exp_avg'][i] = (new_ub, new_lb)
 
                 for i in range(len(p.shape)):
                     exp_avg_sq_view = exp_avg_sq
@@ -142,7 +140,7 @@ class Adam(Optimizer):
                         exp_avg_sq_view_max = exp_avg_sq_view.max(dim=1)[0]
                     else:
                         exp_avg_sq_view_max = exp_avg_sq_view
-                state['exp_avg_sq'][i] = exp_avg_sq_view_max.clone()
+                    state['exp_avg_sq'][i] = exp_avg_sq_view_max.clone()
 
                 # for i in range(len(p.shape)): # TODO optimize later if needed
                 #     grad_view = grad
@@ -170,7 +168,9 @@ class Adam(Optimizer):
                 #     # Use the max. for normalizing running avg. of gradient
                 #     denom = (max_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
                 # else:
-
+                assert ((exp_avg_sq - real_exp_avg_sq) >= 0).sum() == np.prod(exp_avg_sq.shape)
+                assert ((exp_avg_ub - real_exp_avg) >= 0).sum() == np.prod(exp_avg_ub.shape)
+                assert ((exp_avg_lb - real_exp_avg) <= 0).sum() == np.prod(exp_avg_lb.shape)
                 exp_avg = exp_avg_ub + exp_avg_lb
                 # exp_avg = real_exp_avg
                 # exp_avg_sq = real_exp_avg_sq

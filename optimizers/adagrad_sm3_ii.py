@@ -2,6 +2,8 @@ import torch
 from torch.optim import Optimizer
 from cms import CountMinSketch
 
+import numpy as np
+
 class Adagrad(Optimizer):
     """Implements Adagrad algorithm.
 
@@ -87,6 +89,8 @@ class Adagrad(Optimizer):
                     state['sum'][i] = sum_sq_view_max.clone()
 
                 state['real_sum'].addcmul_(grad, grad, value=1)
+                assert ((sum_sq - state['real_sum']) >= 0).sum() == np.prod(sum_sq.shape)
+                # print(state['real_sum'].sum() / sum_sq.sum()) # TODO it's kind of small...
 
                 # if grad.is_sparse:
                 #     grad = grad.coalesce()  # the update is non-linear so indices must be unique
