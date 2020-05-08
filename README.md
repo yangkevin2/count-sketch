@@ -1,3 +1,5 @@
+This is a fork of the original repo https://github.com/rdspring1/Count-Sketch-Optimizers where we experiment with extending SM3 to Adam for a class project.
+
 # Count-Sketch Optimizers
 [Compressing Gradient Optimizers via Count-Sketches](http://proceedings.mlr.press/v97/spring19a/spring19a.pdf)
 

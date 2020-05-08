@@ -21,7 +21,7 @@ from adam import Adam # Count-Sketch Adam optimizer
 from adam_mnk_opt import Adam as Adam_MNK
 from adam_mnk_embed_opt import Adam as Adam_MNK_Embed
 from adagrad_sm3 import Adagrad as Adagrad_SM3
-from adagrad_sm3_ii import Adagrad as Adagrad_SM3_II
+from adagrad_sm3_ii_opt import Adagrad as Adagrad_SM3_II
 from adagrad_sm3_ii_embed import Adagrad as Adagrad_SM3_II_Embed
 from rmsprop import RMSprop # Count-Sketch RMSProp optimizer
 #from adam_base import Adam # Baseline Adam optimizer supports sparse gradients
@@ -33,7 +33,7 @@ parser.add_argument('--data', type=str, default='./data/wikitext-2',
 parser.add_argument('--model', type=str, default='LSTM',
                     help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU)')
 parser.add_argument('--opt', type=str, default='Adam_MNK', 
-                    choices=['Adam', 'Adagrad', 'SGD_CS', 'Adam_CS', 'Adagrad_CS', 'RMSprop_CS', 'Adam_MNK', 'Adam_MNK_Embed', 'Adagrad_SM3', 'Adagrad_SM3_II', 'Adagrad_SM3_II_Embed'],
+                    choices=['SGD', 'Adam', 'Adagrad', 'SGD_CS', 'Adam_CS', 'Adagrad_CS', 'RMSprop_CS', 'Adam_MNK', 'Adam_MNK_Embed', 'Adagrad_SM3', 'Adagrad_SM3_II', 'Adagrad_SM3_II_Embed'],
                     help='type of optimizer')
 parser.add_argument('--emsize', type=int, default=672,
                     help='size of word embeddings')
@@ -120,6 +120,8 @@ criterion = nn.CrossEntropyLoss()
 optimizer = None
 if args.opt == 'Adam':
     optimizer = Adam_Base(model.parameters(), betas=(0.9, 0.999))
+elif args.opt == 'SGD':
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
 elif args.opt == 'Adagrad':
     optimizer = torch.optim.Adagrad(model.parameters(), args.lr)
 elif args.opt == 'SGD_CS':

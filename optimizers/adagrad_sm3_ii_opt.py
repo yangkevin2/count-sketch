@@ -60,7 +60,8 @@ class Adagrad(Optimizer):
                         state['sum'] = [torch.zeros(p.shape[i]).to(p.device) for i in range(len(p.shape))]
                         # state['real_sum'] = torch.zeros_like(p, memory_format=torch.preserve_format)
                     else:
-                        state['sum'] = torch.full_like(grad.data, group['initial_accumulator_value'])
+                        state['sum'] = [torch.zeros(p.shape[i]).to(p.device) for i in range(len(p.shape))]
+                        # state['real_sum'] = torch.zeros_like(p, memory_format=torch.preserve_format)
 
 
                 state['step'] += 1
@@ -108,7 +109,25 @@ class Adagrad(Optimizer):
                     std = sum_sq.sqrt().add_(1e-10)
                     p.data[nonzero_idx] = p.data[nonzero_idx].addcdiv_(-clr, grad, std)
                 else:
-                    state['sum'].addcmul_(1, grad, grad)
-                    std = state['sum'].sqrt().add_(1e-10)
+                    sum_sq = state['sum'][0]
+                    for i in range(1, len(p.shape)):
+                        sum_sq = torch.min(sum_sq.unsqueeze(i), state['sum'][i].view(tuple([1 for _ in range(i)] + [-1])))
+                    sum_sq.addcmul_(grad, grad, value=1)
+
+                    for i in range(len(p.shape)): # TODO optimize later if needed
+                        sum_sq_view = sum_sq
+                        if i != 0:
+                            sum_sq_view = sum_sq_view.transpose(0, i)
+                        if len(p.shape) > 1:
+                            sum_sq_view = sum_sq_view.flatten(1)
+                            sum_sq_view_max = sum_sq_view.max(dim=1)[0]
+                        else:
+                            sum_sq_view_max = sum_sq_view
+                        state['sum'][i] = sum_sq_view_max.clone()
+
+                    # state['real_sum'].addcmul_(grad, grad, value=1)
+                    # assert ((sum_sq - state['real_sum']) >= 0).sum() == np.prod(sum_sq.shape)
+
+                    std = sum_sq.sqrt().add_(1e-10)
                     p.data.addcdiv_(-clr, grad, std)
         return loss
